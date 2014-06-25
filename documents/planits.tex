@@ -1,0 +1,75 @@
+\documentclass[12pt]{article}
+\input{LocalStyle.sty}  
+
+\title{just thinking about doing slamnastics}
+\author{tim, marcus}
+\date{}
+\begin{document}
+\maketitle
+
+\section{a PGM}
+
+Here's what we think a probabilistic graphical model might look like:
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[scale=1.]{pics/megaSLAM_PGM}
+  \caption{PGM for thinking about our megaslamisms.}
+\end{figure}
+
+\begin{itemize}
+\item $\alpha$ is a prior over worlds
+\item $\bx$ is the actual world
+\item $\theta_t$ is a position and pose of the camera (in some coordinate frame)
+\item $\by_t$ is an image (a view if you like), that includes depth.
+\end{itemize}
+
+The system has an initial assumed viewpoint, $\theta_0$.
+
+We then get a series of views of parts of the world, and although we
+don't know the exact viewpoints we know roughly how they're likely to
+change.
+
+We know how viewpoint combines with the world to create an view.
+
+
+\section{simplest possible world that exposes the core inference problem?}
+
+What about the world being one-dimensional, discretized in space, and
+each spatial location having a ``height''? A camera detects these
+heights (plus noise) but only within a window of fixed width around
+its current position. The camera's position changes smoothly (meaning
+small changes only) over time but the actual position change is
+unknown (must be infered from the image).
+
+\begin{itemize}
+\item $\theta_t$ is just a scalar: the position of the camera. It always points straight down, and detects true vertical depth within its field of view.
+\item an observation $y_t$ is a vector of depth values, $\by_t =
+  (x_{\theta-d}+\epsilon : x_{\theta+d}+\epsilon)$ with the $\epsilon$
+  all i.i.d. Gaussian.  That is, the observations are noisy versions
+  of the true depth, $x_i$, over just a finite window.
+\end{itemize}
+
+Building a map means correctly representing the true depths and their
+correct locations, ugh, that's not right............
+
+\section{inference}
+
+\subsection{exact is infeasible}
+Can one model map uncertainty ``properly'', by having a prior
+and updating to a general posterior? No, because
+  \begin{enumerate}
+  \item maps are very high-dimensional and the posterior is not going
+    to factor (ie. the dimensions will be highly correlated), so full
+    inference of this kind is hopelessly intractable;
+  \item the posterior might also be massively multimodal due to
+    non-identifiability (exchangability of latent variables). Not sure
+    this is an issue though so I'm just noting it....
+  \end{enumerate}
+
+\subsection{representing a posterior over maps in some other way}
+
+
+
+
+\end{document}
