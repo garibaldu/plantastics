@@ -1,75 +1,119 @@
-\documentclass[12pt]{article}
+\documentclass[11pt]{article}
 \input{LocalStyle.sty}  
 
-\title{just thinking about doing slamnastics}
-\author{tim, marcus}
+\title{deep plantastic fabrications}
+\author{marcus, will, chris}
 \date{}
 \begin{document}
 \maketitle
 
-\section{a PGM}
+\begin{abstract}
+ Planning seems ludicrously hard - there must be some trick. Classical planning starts from a symbolic representation of objects, which we don't have in the wild, and performs forward and/or backward chaining to find plans. Control systems start from... stuff, and do.... stuff. Probabilistic discrete Markov chain models start from a ``1-of-N'' (punctate?) representation of state, without objects, and solve the planning problem by Value Iteration (or policy iteration I guess). Recent developments in deep learning suggest we might be able to learn rich representations of complex patterns in time, and such representations may be rather flexible. Our idea: let's think about how planning might be achieved in this kind of representation and then ask what it would take for planning to be efficiently realised in such an architecture. What would it take to make planning really easy?
+\end{abstract}
 
-Here's what we think a probabilistic graphical model might look like:
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[scale=1.]{pics/megaSLAM_PGM}
-  \caption{PGM for thinking about our megaslamisms.}
-\end{figure}
-
+\section{setup}
 \begin{itemize}
-\item $\alpha$ is a prior over worlds
-\item $\bx$ is the actual world
-\item $\theta_t$ is a position and pose of the camera (in some coordinate frame)
-\item $\by_t$ is an image (a view if you like), that includes depth.
+ \item $\bx$, the current belief state (henceforth just ``state''). $\bx$ consists of a large number ($N$) of ``neurons'', each $x_i \in \{0,1\}$. So there are $2^N$ possible states.
+ \item $\bx^\prime$, the next such state.
+ \item $\bg$, the goal state, on some subset of the neurons representing belief state.
 \end{itemize}
 
-The system has an initial assumed viewpoint, $\theta_0$.
-
-We then get a series of views of parts of the world, and although we
-don't know the exact viewpoints we know roughly how they're likely to
-change.
-
-We know how viewpoint combines with the world to create an view.
+And we imagine a large number of ``action neurons'', $\ba = (a_1, a_2, \ldots, a_j,\ldots)$, with each $a_j \in \{0,1\}$
 
 
-\section{simplest possible world that exposes the core inference problem?}
+\section{what is planning}
+Given transition probabilities $P(\bx^\prime \mid \bx, \ba)$ and the current $\bx$ and a goal $\bg$, the planning problem is to decide on the next action to take. In our case that means assigning binary states to all the action nodes such that the system is most likely to move to a new state from which the goal is more achievable.
 
-What about the world being one-dimensional, discretized in space, and
-each spatial location having a ``height''? A camera detects these
-heights (plus noise) but only within a window of fixed width around
-its current position. The camera's position changes smoothly (meaning
-small changes only) over time but the actual position change is
-unknown (must be infered from the image).
+The thing that sets planning apart seems to be the flexible response it can generate given a novel goal.
 
+Thoughts:
+\begin{enumerate}
+ \item could do forward planning by generating potential paths, using $P(\bx^\prime \mid \bx, \ba)$, hoping one of them hits $\bg$. If it does, do the first action on that track.
+ \item similarly can imagine a backward planning sampling procedure.
+ \item the Right Answer is probably to write this as an MDP with appropriate rewards capturing the new goal, and then run Value Iteration to build values everywhere. But there are going to be $2^N$ states so this is silly on the face of it.
+\end{enumerate}
+But these will stink, for a bunch of reasons.
+
+One is that the branching factor is astronomical.
+
+Another is that the transition probabilities are only encoded by a bunch of weights between nodes, and these same nodes are all we have with which to represent states at any time (step in the plan).
+
+Classical-like Planning would appear to suck.
+
+\section{accessibility as topology}
+
+SUPPOSE we have a bit-string representation of state such that, for each state $\bx$ {\bf all the successor states $\bx^\prime$ accessible by one action are one bit away} from $\bx$. We'll probably also need the converse: no state that is inaccessible in one action from $\bx$ is only one bit different from it.
+
+We suspect this should make planning efficient.
+
+Notice that $P(\bx^\prime \mid \bx, \ba)$ in its full generality is going to be a distribution over all $2^N$ bit-strings.
+But our assumption means that all these are zero except those 1 bit away from $\bx$, so it's really a normalised distribution over just $N$ strings. I think the sufficient statistics of that distribution can be captured by its ``center of mass'', $\hat{\bx}^\prime = \expectation \left[ \bx^\prime \right]$, where the expectation is over $P(\bx^\prime \mid \bx, \ba)$. 
+
+$\hat{\bx}^\prime$ is a point on the simplex defined by all those vertices on the hypercube 1 bit away from $\bx$. It's merely a point in $\reals^N$, meaning we're working with just $N$ degrees of freedom instead of $2^N$.
+
+\subsection{planning}
+Suppose we have a function $f(\bx,\bg,\ba)$ that decreases monotonically with the difference between $\hat{\bx}^\prime (\bx,\ba)$ and $\bg$.
+
+A helpful notation is $\ba_{\wo j}$, which means the activities of all the action neurons {\it apart from the $j^\text{th}$}.
+
+Then ``planning'', in terms of say the $j^\text{th}$ action neuron, seems to reduce to choosing  $a_j$ to be 0 or 1 based on whether 
+\[ 
+ f(\bx, \bg, \ba_{\wo j}, a_j=1) >  f(\bx, \bg, \ba_{\wo j}, a_j=0)
+\]
+
+We might denote the difference by 
+\[\Delta_j f(\bx, \bg, \ba_{\wo j})\]
+
+The action should be 1 if this is positive and zero otherwise.
+
+To decide $a_j$ quickly, \underline{ the calculation of $\Delta_j f(\bx, \bg, \ba_{\wo j}) $ has to be {\it really easy}}. Right?
+
+\subsection{a candidate for $f$}
+I suggest the KL divergence,
+\begin{align*}
+ f(\bx, \bg, \ba) &= \sum_{i=1}^N g_i \log y_i \; + \; (1-g_i) \log (1-y_i)
+ \intertext{where}
+ y_i &= \Pr(x_i^\prime =1 \mid \bx, \ba)
+\intertext{
+This means the difference between the two $f$ values for action node $j$ is}
+ \Delta_j f(\bx, \bg, \ba_{\wo j}) &= \sum_{i=1}^N \bigg[ g_i \log \frac{y_i^1}{y_i^0} \; + \; (1-g_i) \log \frac{(1-y_i^1)}{(1-y_i^0)} \bigg]
+ \intertext{where}
+y_i^{A_j} &= \Pr(x_i^\prime =1 \mid \bx, \ba_{\wo j}, a_j=A_j) 
+\end{align*}
+
+
+
+So looking at the first term for example, $\log \frac{y_i^1}{y_i^0}$ needs to be easy. 
+
+This seems spectacularly unpromising, and might mean some other candidate for $f$ should be sought! 
+
+On the other hand, if we do the obvious thing for $y$ and use a sigmoid function of weighted input $\phi$ from both $\ba$ and $\bx$, then the first term involves
+\begin{align*}
+\log \frac{y_i^1}{y_i^0} &= 
+\log (1+e^{-\phi_{\wo j}}) - \log (1+e^{-\phi_{\wo j} \, -w_{ij}})
+\end{align*}
+So those are ``hinge'' functions: basically they're zero if the exponent is negative, and match the exponent if it's positive.
+
+What does this mean?!
+
+I suspect there are several cases but it's going to be close to being just $w_{ij}$ in some of them, namely the learned weight from the $j^\text{th}$ action node into the $i^\text{th}$ state node. And THAT would lead to the $a_j$ decision having something close to a weighted sum of inputs {\it from } state nodes {\it in their goal state}.... Of course, I have only done the first term in $\Delta f$ here, not the second. But it's suggestive. The second term might result in almost the same thing but with negatives on the weights when the goal $g_i=0$. 
+
+So in my dreams I see us ``deriving'' the action choice $a_j=1$ with a probability given by sigmoid function of a {\it weighted sum of inputs into the action neuron} where 
 \begin{itemize}
-\item $\theta_t$ is just a scalar: the position of the camera. It always points straight down, and detects true vertical depth within its field of view.
-\item an observation $y_t$ is a vector of depth values, $\by_t =
-  (x_{\theta-d}+\epsilon : x_{\theta+d}+\epsilon)$ with the $\epsilon$
-  all i.i.d. Gaussian.  That is, the observations are noisy versions
-  of the true depth, $x_i$, over just a finite window.
+ \item the weights are the same as those going in the opposite direction, namely the predictive weights $w_{ij}$ from the action neuron $j$ into the belief-state neuron $i$;
+ \item the ``inputs'' are 1 if $g_i=1$ and -1 if $g_i=0$
 \end{itemize}
+That'd be about as fast as you could expect then!
 
-Building a map means correctly representing the true depths and their
-correct locations, ugh, that's not right............
+It's not going to be quite that simple though - those hinge functions are complicated... There's some sort of ``veto'' being played out... Notice the (horrible) interaction between {\bf all} the action neurons, coming through the exponentiation of $\phi_{\wo j}$. What a pest. Hard to imagine that going away unless I stop thinking of $\ba$ as causal regarding state changes. An RBM between $a$ and $x$ instead...? What would that even mean?!
 
-\section{inference}
-
-\subsection{exact is infeasible}
-Can one model map uncertainty ``properly'', by having a prior
-and updating to a general posterior? No, because
-  \begin{enumerate}
-  \item maps are very high-dimensional and the posterior is not going
-    to factor (ie. the dimensions will be highly correlated), so full
-    inference of this kind is hopelessly intractable;
-  \item the posterior might also be massively multimodal due to
-    non-identifiability (exchangability of latent variables). Not sure
-    this is an issue though so I'm just noting it....
-  \end{enumerate}
-
-\subsection{representing a posterior over maps in some other way}
-
-
+\subsection{Next steps}
+\begin{itemize}
+\item think about that last sentence in my sleep.
+\item Figure out the hinge extremal cases to get a feel.
+\item In those extremal cases, does this actually lead to action decisions that look sane?
+\item SHOULD look for another $f$ choice and see if it's more straightforward, e.g. squared errors. My gut says it won't be.
+\end{itemize}
 
 
 \end{document}
