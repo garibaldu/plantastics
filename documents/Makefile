@@ -1,4 +1,4 @@
-all: thinking.pdf
+all: planits.pdf
 
 %.pdf: %.tex
 	pdflatex $<
